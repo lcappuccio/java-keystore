@@ -60,12 +60,11 @@ public class SignatureUtilImpl implements SignatureUtil {
      */
     private void openKeyStore(String keyStorePath, byte[] keyStorePasswd) throws IOException,
             KeyStoreException, CertificateException, NoSuchAlgorithmException {
-        FileInputStream inputStream;
         logger.info("Opening {}", keyStorePath);
         keyStore = KeyStore.getInstance("jks");
-        inputStream = new FileInputStream(keyStorePath);
-        keyStore.load(inputStream, new String(keyStorePasswd).toCharArray());
-        inputStream.close();
+        try (FileInputStream inputStream = new FileInputStream(keyStorePath)) {
+            keyStore.load(inputStream, new String(keyStorePasswd).toCharArray());
+        }
     }
 
     /**
