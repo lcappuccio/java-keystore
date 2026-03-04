@@ -37,14 +37,17 @@ public class SignatureUtilImpl implements SignatureUtil {
      */
     public SignatureUtilImpl(String keyStorePath, byte[] keyStorePasswd) throws NoSuchAlgorithmException,
             KeyStoreException, IOException, CertificateException {
+        logger.debug("Initializing SignatureUtil with algorithm: {}", ALGORITHM);
         ArrayList<Certificate> certificates = new ArrayList<>();
         this.publicKeys = new ArrayList<>();
         // Initialize keyStore
         openKeyStore(keyStorePath, keyStorePasswd);
         // Load certificates
+        logger.debug("Loading certificates from keystore");
         Enumeration<String> enumeration = keyStore.aliases();
         while (enumeration.hasMoreElements()) {
             String alias = enumeration.nextElement();
+            logger.debug("Found certificate alias: {}", alias);
             certificates.add(keyStore.getCertificate(alias));
         }
         // Initialize signature and load certificates/public keys
@@ -52,6 +55,7 @@ public class SignatureUtilImpl implements SignatureUtil {
         for (Certificate certificate : certificates) {
             publicKeys.add(certificate.getPublicKey());
         }
+        logger.info("SignatureUtil initialized successfully with {} certificate(s)", certificates.size());
     }
 
     /**
@@ -60,10 +64,15 @@ public class SignatureUtilImpl implements SignatureUtil {
      */
     private void openKeyStore(String keyStorePath, byte[] keyStorePasswd) throws IOException,
             KeyStoreException, CertificateException, NoSuchAlgorithmException {
-        logger.info("Opening {}", keyStorePath);
+        logger.info("Opening keystore: {}", keyStorePath);
+        logger.debug("Keystore type: jks");
         keyStore = KeyStore.getInstance("jks");
         try (FileInputStream inputStream = new FileInputStream(keyStorePath)) {
             keyStore.load(inputStream, new String(keyStorePasswd).toCharArray());
+            logger.debug("Keystore loaded successfully");
+        } catch (IOException e) {
+            logger.error("Failed to open keystore at path: {}", keyStorePath, e);
+            throw e;
         }
     }
 
@@ -72,14 +81,17 @@ public class SignatureUtilImpl implements SignatureUtil {
      */
     @Override
     public void useKey(String keyAlias, char[] keyPasswd) throws SignatureUtilException {
-        logger.info("Using key {}", keyAlias);
+        logger.info("Using key with alias: {}", keyAlias);
         try {
             privateKey = (PrivateKey) keyStore.getKey(keyAlias, keyPasswd);
             if (privateKey == null) {
-                exceptionHandler(new SignatureUtilException("Bad key"), "Bad key");
+                String errorMessage = "Key not found for alias: " + keyAlias;
+                exceptionHandler(new SignatureUtilException(errorMessage), errorMessage);
             }
+            logger.debug("Private key retrieved successfully for alias: {}", keyAlias);
         } catch (KeyStoreException | NoSuchAlgorithmException | UnrecoverableKeyException ex) {
-            throw new SignatureUtilException(ex.getMessage());
+            String errorMessage = "Failed to retrieve key for alias: " + keyAlias;
+            exceptionHandler(ex, errorMessage);
         }
     }
 
@@ -90,12 +102,14 @@ public class SignatureUtilImpl implements SignatureUtil {
     public void signDocument(String document) throws SignatureUtilException, InvalidKeyException, SignatureException {
         logger.info("Signing document");
         if (document == null) {
-            String errorMessage = "Trying to sign a null document";
+            String errorMessage = "Cannot sign null document";
             exceptionHandler(new SignatureUtilException(errorMessage), errorMessage);
         }
+        logger.debug("Document size: {} bytes", document.length());
         signature.initSign(privateKey);
         signature.update(Objects.requireNonNull(document).getBytes());
         byteSignature = signature.sign();
+        logger.info("Document signed successfully, signature size: {} bytes", byteSignature.length);
     }
 
     /**
@@ -104,19 +118,23 @@ public class SignatureUtilImpl implements SignatureUtil {
     @Override
     public Boolean verifySign(String document, byte[] documentSignature) throws SignatureUtilException,
             InvalidKeyException, SignatureException {
-        logger.info("Asked to verify document signature");
+        logger.info("Verifying document signature");
+        logger.debug("Signature size: {} bytes, expected: {} bytes", documentSignature.length, SIGNATURE_SIZE);
         if (documentSignature.length != SIGNATURE_SIZE) {
-            String errorMessage = "Invalid signature size: ";
-            exceptionHandler(new SignatureUtilException(errorMessage + documentSignature.length),
-                    errorMessage + documentSignature.length);
+            String errorMessage = "Invalid signature size: " + documentSignature.length +
+                    " (expected: " + SIGNATURE_SIZE + ")";
+            exceptionHandler(new SignatureUtilException(errorMessage), errorMessage);
         }
+        logger.debug("Checking signature against {} public key(s)", publicKeys.size());
         for (PublicKey publicKey : publicKeys) {
             signature.initVerify(publicKey);
             signature.update(document.getBytes());
             if (signature.verify(documentSignature)) {
+                logger.info("Signature verification successful");
                 return true;
             }
         }
+        logger.warn("Signature verification failed - no matching public key found");
         return false;
     }
 
